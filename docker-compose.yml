@@ -1,0 +1,271 @@
+version: '3.8'
+
+services:
+  # ==========================================
+  # 1. DATA STORAGE & METADATA
+  # ==========================================
+  
+  # Metadata Database (Postgres)
+  # Stores metadata for: Trino (Iceberg), Dagster, Keycloak
+  postgres:
+    image: postgres:15
+    container_name: kappalake-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: metastore
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./infra/postgres/data:/var/lib/postgresql/data
+      - ./infra/postgres/init-dbs.sh:/docker-entrypoint-initdb.d/init-dbs.sh
+    networks:
+      - kappalake-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d metastore"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Object Storage (MinIO)
+  # Stores the actual data (Bronze, Silver, Gold)
+  minio:
+    image: minio/minio:RELEASE.2023-09-04T19-57-37Z
+    container_name: kappalake-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./infra/minio/data:/data
+    networks:
+      - kappalake-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Helper to create default bucket in MinIO
+  minio-create-bucket:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb --ignore-existing myminio/warehouse;
+      exit 0;
+      "
+    networks:
+      - kappalake-net
+
+  # ==========================================
+  # 2. COMPUTE & QUERY ENGINE
+  # ==========================================
+
+  # Query Engine (Trino)
+  # Federated SQL engine + Iceberg processing
+  trino:
+    image: trinodb/trino:426
+    container_name: kappalake-trino
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/trino/etc:/etc/trino
+    networks:
+      - kappalake-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # Streaming Engine (Flink) - JobManager
+  flink-jobmanager:
+    image: flink:1.17-java11
+    container_name: kappalake-flink-jm
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+    networks:
+      - kappalake-net
+
+  # Streaming Engine (Flink) - TaskManager
+  flink-taskmanager:
+    image: flink:1.17-java11
+    container_name: kappalake-flink-tm
+    depends_on:
+      - flink-jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    networks:
+      - kappalake-net
+
+  # ==========================================
+  # 3. INGESTION & STREAMING BUFFER
+  # ==========================================
+
+  # Streaming Buffer (Redpanda)
+  # Kafka-compatible streaming platform
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.2.14
+    container_name: kappalake-redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 1G
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --check=false
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr 0.0.0.0:8082
+      - --advertise-pandaproxy-addr localhost:8082
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+      - "8082:8082"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    networks:
+      - kappalake-net
+
+  # ==========================================
+  # 4. ORCHESTRATION (Dagster)
+  # ==========================================
+
+  # Dagster Webserver (UI)
+  dagster-webserver:
+    build: ./infra/dagster
+    container_name: kappalake-dagster-web
+    entrypoint: ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000", "-w", "workspace.yaml"]
+    environment:
+      DAGSTER_POSTGRES_USER: admin
+      DAGSTER_POSTGRES_PASSWORD: password
+      DAGSTER_POSTGRES_DB: dagster
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./infra/dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
+      - ./infra/dagster/workspace.yaml:/opt/dagster/app/workspace.yaml
+      - ./infra/dagster/repo.py:/opt/dagster/app/repo.py
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kappalake-net
+
+  # Dagster Daemon (Scheduler/Sensors)
+  dagster-daemon:
+    build: ./infra/dagster
+    container_name: kappalake-dagster-daemon
+    entrypoint: ["dagster-daemon", "run"]
+    environment:
+      DAGSTER_POSTGRES_USER: admin
+      DAGSTER_POSTGRES_PASSWORD: password
+      DAGSTER_POSTGRES_DB: dagster
+    volumes:
+      - ./infra/dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml
+      - ./infra/dagster/workspace.yaml:/opt/dagster/app/workspace.yaml
+      - ./infra/dagster/repo.py:/opt/dagster/app/repo.py
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kappalake-net
+
+  # ==========================================
+  # 5. SECURITY & GOVERNANCE
+  # ==========================================
+
+  # Identity Provider (Keycloak)
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0.1
+    container_name: kappalake-keycloak
+    command: start-dev
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: admin
+      KC_DB_PASSWORD: password
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8080" # Mapped to 8180 to avoid conflict with Trino (8080) or Flink (8081)
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - kappalake-net
+
+  # ==========================================
+  # 6. APPLICATION LAYER & AI
+  # ==========================================
+
+  # KappaLake API Gateway
+  api:
+    build: ./apps/api
+    container_name: kappalake-api
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_URL: postgresql://admin:password@postgres:5432/metastore
+      MINIO_URL: http://minio:9000
+      TRINO_URL: http://trino:8080
+      LLM_API_URL: http://llm:8080/v1
+    networks:
+      - kappalake-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # KappaLake UI (Frontend)
+  ui:
+    build: ./apps/ui
+    container_name: kappalake-ui
+    ports:
+      - "3001:3000"
+    networks:
+      - kappalake-net
+    depends_on:
+      - api
+
+  # LLM Server (llama.cpp)
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: kappalake-llm
+    entrypoint: /entrypoint.sh
+    ports:
+      - "8085:8080" # Mapped to 8085 to avoid conflict
+    volumes:
+      - ./infra/llm/models:/models
+      - ./infra/llm/entrypoint.sh:/entrypoint.sh
+    deploy:
+      resources:
+        limits:
+          cpus: '8.0'
+    networks:
+      - kappalake-net
+
+networks:
+  kappalake-net:
+    driver: bridge
+
+volumes:
+  redpanda-data:

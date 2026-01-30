@@ -1,0 +1,7 @@
+load_from:
+  # In a real setup, we would load from a gRPC server (user code)
+  # For now, we will just leave this empty or point to a dummy file if needed.
+  # This allows the webserver to start without user code errors.
+  # We will add the "kappalake_pipelines" location later.
+  - python_file: repo.py
+

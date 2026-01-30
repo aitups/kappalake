@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+trino
+pydantic
+python-dotenv
+openai

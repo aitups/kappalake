@@ -1,0 +1,14 @@
+kappalake.org/*
+
+# Data files and volumes must be uploaded empty
+infra/postgres/data/*
+infra/trino/data/*
+infra/minio/*
+infra/llm/models/*
+infra/dagster/dagster_home/*
+
+# ui modules
+apps/ui/.next/*
+appp/ui/node_modules/*
+apps/ui/coverage/*
+apps/ui/next-env.d.ts
