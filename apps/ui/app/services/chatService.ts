@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { CONFIG } from "../lib/config";
 import { AgentRunResponse, ExecuteResponse, PipelineResponse } from "../lib/types";
 
@@ -11,6 +12,16 @@ import { AgentRunResponse, ExecuteResponse, PipelineResponse } from "../lib/type
  * @returns The AI's response containing the SQL query and explanation.
  * @throws Error if the API request fails.
  */
+/**
+ * Builds request headers, attaching the Keycloak bearer token when present.
+ */
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = (await cookies()).get("kappalake_token")?.value;
+  return token
+    ? { "Content-Type": "application/json", Authorization: `Bearer ${token}` }
+    : { "Content-Type": "application/json" };
+}
+
 export async function generatePipeline(prompt: string): Promise<PipelineResponse> {
   // Use the internal URL when running on the server
   const url = `${CONFIG.INTERNAL_API_URL}${CONFIG.ENDPOINTS.GENERATE_PIPELINE}`;
@@ -20,7 +31,7 @@ export async function generatePipeline(prompt: string): Promise<PipelineResponse
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await authHeaders(),
       body: JSON.stringify({ prompt }),
       cache: "no-store", // Ensure we don't cache API responses
     });
@@ -46,7 +57,7 @@ export async function executePipeline(prompt: string): Promise<ExecuteResponse> 
   const url = `${CONFIG.INTERNAL_API_URL}${CONFIG.ENDPOINTS.EXECUTE}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify({ prompt }),
     cache: "no-store",
   });
@@ -65,7 +76,7 @@ export async function runAgentTask(task: string): Promise<AgentRunResponse> {
   const url = `${CONFIG.INTERNAL_API_URL}${CONFIG.ENDPOINTS.AGENT_RUN}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: await authHeaders(),
     body: JSON.stringify({ task }),
     cache: "no-store",
   });

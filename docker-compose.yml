@@ -237,7 +237,7 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:22.0.1
     container_name: kappalake-keycloak
-    command: start-dev
+    command: start-dev --import-realm
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
@@ -245,6 +245,8 @@ services:
       KC_DB_PASSWORD: password
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - ./infra/keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro
     ports:
       - "8180:8080" # Mapped to 8180 to avoid conflict with Trino (8080) or Flink (8081)
     depends_on:
@@ -271,6 +273,9 @@ services:
       LLM_MODEL: SmolLM2-135M-Instruct-Q4_K_M
       # Agentic layer: fastpath (private repo) mounted from ../fastpath
       PYTHONPATH: /opt/fastpath/src:/app
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_REALM: kappalake
+      AUTH_ENABLED: "false"  # set "true" to require Keycloak JWTs
     volumes:
       - ../fastpath:/opt/fastpath:ro
     networks:

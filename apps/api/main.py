@@ -1,5 +1,5 @@
 """KappaLake API Gateway - schema catalog, SQL execution, AI copilot and FastPath agent."""
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 import os
@@ -7,6 +7,7 @@ from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
 from agent_service import run_agent_task
+from auth import get_current_user
 from models import (
     AgentRequest,
     AgentResponse,
@@ -89,7 +90,7 @@ def health_check():
 
 
 @app.get("/catalog/tables", response_model=list[Table])
-def list_tables(schema: str = "default"):
+def list_tables(schema: str = "default", user: dict = Depends(get_current_user)):
     """List tables in a specific schema using Trino information_schema."""
     conn = get_trino_connection()
     cur = conn.cursor()
@@ -122,7 +123,7 @@ def list_tables(schema: str = "default"):
 
 
 @app.post("/query/execute")
-def execute_query(request: QueryRequest):
+def execute_query(request: QueryRequest, user: dict = Depends(get_current_user)):
     """Execute a raw SQL query (Use with caution - for internal/admin use)."""
     conn = get_trino_connection()
     cur = conn.cursor()
