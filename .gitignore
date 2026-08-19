@@ -13,3 +13,5 @@ apps/ui/.next/*
 apps/ui/node_modules/*
 apps/ui/coverage/*
 apps/ui/next-env.d.ts
+
+desktop.ini

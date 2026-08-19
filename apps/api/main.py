@@ -21,10 +21,10 @@ TRINO_HOST = os.getenv("TRINO_HOST", "trino")
 TRINO_PORT = int(os.getenv("TRINO_PORT", 8080))
 TRINO_USER = os.getenv("TRINO_USER", "admin")
 
-# LLM Configuration (Local via llama.cpp)
+# LLM Configuration (Local via Hayai - OpenAI-compatible server)
 LLM_API_URL = os.getenv("LLM_API_URL", "http://llm:8080/v1")
 LLM_API_KEY = "sk-no-key-required"
-MODEL_NAME = "Qwen3-1.7B-Q4_K_M.gguf"
+MODEL_NAME = os.getenv("LLM_MODEL", "SmolLM2-135M-Instruct")
 
 client = OpenAI(
     base_url=LLM_API_URL,

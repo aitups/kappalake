@@ -1,34 +1,37 @@
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# System dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libpq-dev \
     gcc \
     docker.io \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directory structure
 RUN mkdir -p /opt/dagster/dagster_home /opt/dagster/app
 
-# Install Python dependencies
-# dagster-postgres: for storage
-# dagster-aws: for S3/MinIO IO managers
-# dagster-webserver: for the UI
-# dagster-graphql: required by webserver
-# airbyte: for ingestion assets
-RUN pip install \
+# Python dependencies
+# dagster-postgres: storage, dagster-docker: docker ops
+# airbyte (PyAirbyte): source-faker ingestion
+# pyarrow + s3fs: parquet staging to MinIO
+# trino: Iceberg DDL / add_files / CTAS
+RUN pip install --no-cache-dir \
     dagster \
     dagster-webserver \
     dagster-postgres \
-    dagster-aws \
     dagster-docker \
-    psycopg2 \
     airbyte \
-    duckdb==0.9.2 \
-    duckdb-engine==0.9.2
+    pandas \
+    pyarrow \
+    s3fs \
+    trino \
+    psycopg2-binary \
+    duckdb \
+    pyiceberg[s3fs,pyarrow]
 
 WORKDIR /opt/dagster/app
 
@@ -40,4 +43,3 @@ COPY workspace.yaml /opt/dagster/app/
 EXPOSE 3000
 
 ENTRYPOINT ["dagster-webserver", "-h", "0.0.0.0", "-p", "3000"]
-
