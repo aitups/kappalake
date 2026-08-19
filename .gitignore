@@ -15,3 +15,5 @@ apps/ui/coverage/*
 apps/ui/next-env.d.ts
 
 desktop.ini
+# stray file from curl -w mishaps
+-w
