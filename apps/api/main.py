@@ -38,9 +38,9 @@ TRINO_USER = os.getenv("TRINO_USER", "admin")
 # LLM Configuration (Local via Hayai - OpenAI-compatible server)
 LLM_API_URL = os.getenv("LLM_API_URL", "http://llm:8080/v1")
 LLM_API_KEY = "sk-no-key-required"
-MODEL_NAME = os.getenv("LLM_MODEL", "SmolLM2-135M-Instruct-Q4_K_M")
+MODEL_NAME = os.getenv("LLM_MODEL", "Qwen3.5-2B-Q4_K_M")
 
-client = OpenAI(base_url=LLM_API_URL, api_key=LLM_API_KEY)
+client = OpenAI(base_url=LLM_API_URL, api_key=LLM_API_KEY, timeout=1800.0, max_retries=0)
 
 
 def get_trino_connection():
@@ -162,7 +162,7 @@ Instructions:
             {"role": "user", "content": prompt},
         ],
         temperature=0.1,
-        max_tokens=500,
+        max_tokens=200,  # Qwen3.5-2B is CPU-bound; keep generations bounded
     )
     content = completion.choices[0].message.content or ""
 

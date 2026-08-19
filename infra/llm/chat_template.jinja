@@ -1,0 +1,10 @@
+{%- if messages[0].role == 'system' %}<|im_start|>system
+{{ messages[0].content }}<|im_end|>
+{%- endif %}
+{%- for message in messages %}
+{%- if message.role != 'system' %}<|im_start|>{{ message.role }}
+{{ message.content }}<|im_end|>
+{%- endif %}
+{%- endfor %}
+<|im_start|>assistant
+<think>

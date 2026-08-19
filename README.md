@@ -89,11 +89,19 @@ Streaming events (`stream-producer` -> Redpanda topic `users` ->
     selected by its GGUF file name via `LLM_MODEL` (default
     `SmolLM2-135M-Instruct-Q4_K_M`).
 *   Models live in `infra/llm/models/` and are auto-scanned at startup.
-*   **Known upstream issue:** Hayai's engine currently produces incorrect logits
-    for Qwen2.5/Qwen3 GGUFs (they are architecturally recognized but output
-    garbage). The GGUF files are kept in `infra/llm/models/` for when this is
-    fixed upstream. Until then, use a model from Hayai's tested families
-    (SmolLM2 etc.) or set `LLM_MODEL` to a working model.
+*   **Default model: `Qwen3.5-2B-Q4_K_M`** (hybrid DeltaNet, a Hayai-tested
+    family). Two upstream fixes were required and are included in the local
+    image: GPT-2 byte-level BPE tokenizer decode, and resident preload support
+    for hybrid layers (`HAYAI_MEMORY_STRATEGY: 2048` forces full-resident so
+    the hybrid path runs; the non-resident streaming path for hybrid models is
+    still WIP upstream).
+*   **Performance note:** Qwen3.5-2B is CPU-bound in this environment
+    (~0.5-2 tok/s). Generation of a SQL answer can take several minutes. For
+    production, expose an OpenCL device to the `llm` container or use a
+    smaller/faster model via `LLM_MODEL`.
+*   **Known upstream issue:** Hayai's engine produces incorrect logits for
+    Qwen2.5/Qwen3 (non-hybrid) GGUFs; they are kept in `infra/llm/models/`
+    for when this is fixed upstream.
 *   A tokenizer fix (GPT-2 byte-level BPE `bytes_to_unicode`) was contributed
     upstream to `aitups/hayai`; rebuild the image locally
     (`cd ../hayai && docker build -t aitups/hayai:latest .`) to pick it up.

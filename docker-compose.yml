@@ -270,7 +270,7 @@ services:
       MINIO_URL: http://minio:9000
       TRINO_URL: http://trino:8080
       LLM_API_URL: http://llm:8080/v1
-      LLM_MODEL: SmolLM2-135M-Instruct-Q4_K_M
+      LLM_MODEL: Qwen3.5-2B-Q4_K_M
       # Agentic layer: fastpath (private repo) mounted from ../fastpath
       PYTHONPATH: /opt/fastpath/src:/app
       KEYCLOAK_URL: http://keycloak:8080
@@ -310,14 +310,17 @@ services:
       HAYAI_PORT: "8080"
       HAYAI_MODELS_DIR: "/hayai/models"   # auto-scan registers every *.gguf
       HAYAI_DEVICE: "cpu"
-      HAYAI_MEMORY_STRATEGY: "auto"
+      HAYAI_MEMORY_STRATEGY: "2048"  # cap 2GB: force full resident (hybrid/Qwen3.5 needs resident; streaming path WIP upstream)
       HAYAI_WINDOW: "2048"
       HAYAI_SINKS: "4"
       HAYAI_LOG: "info"
+      # ChatML override: the stock Qwen3.5 template uses vision/tools/namespace constructs minijinja cannot render
+      HAYAI_CHAT_TEMPLATE: "@/hayai/chat_template.jinja"
     ports:
       - "8085:8080" # Mapped to 8085 to avoid conflict
     volumes:
       - ./infra/llm/models:/hayai/models
+      - ./infra/llm/chat_template.jinja:/hayai/chat_template.jinja:ro
     deploy:
       resources:
         limits:
