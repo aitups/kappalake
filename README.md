@@ -63,6 +63,7 @@ KappaLake uses a Polylithic architecture with decoupled components:
 *   `apps/`: Application code (API, UI).
 *   `infra/`: Infrastructure configuration (MinIO, Trino, Dagster, LLM).
 *   `docker-compose.yml`: Main orchestration file.
+*   `kappalake.org/`: **Not part of this repository** - it is the private website repo (`aitups/kappalake-web`), kept as an independent working copy and fully ignored by git.
 
 ### Troubleshooting
 

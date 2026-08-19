@@ -1,4 +1,5 @@
-kappalake.org/*
+# kappalake.org is the PRIVATE website repo (aitups/kappalake-web), managed independently
+kappalake.org/
 
 # Data files and volumes must be uploaded empty
 infra/postgres/data/*
@@ -9,6 +10,6 @@ infra/dagster/dagster_home/*
 
 # ui modules
 apps/ui/.next/*
-appp/ui/node_modules/*
+apps/ui/node_modules/*
 apps/ui/coverage/*
 apps/ui/next-env.d.ts
