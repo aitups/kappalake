@@ -38,8 +38,9 @@ TRINO_USER = os.getenv("TRINO_USER", "admin")
 # LLM Configuration (Local via Hayai - OpenAI-compatible server)
 LLM_API_URL = os.getenv("LLM_API_URL", "http://llm:8080/v1")
 LLM_API_KEY = "sk-no-key-required"
-MODEL_NAME = os.getenv("LLM_MODEL", "Qwen3.5-2B-Q4_K_M")
+MODEL_NAME = os.getenv("LLM_MODEL", "Qwen3.5-0.8B-Q4_K_M")
 
+# Long timeouts + no retries: the local model is CPU-bound.
 client = OpenAI(base_url=LLM_API_URL, api_key=LLM_API_KEY, timeout=1800.0, max_retries=0)
 
 
@@ -54,23 +55,25 @@ def get_trino_connection():
 
 
 def get_schema_context():
-    """Retrieves a simplified schema representation for the LLM context."""
+    """Compact schema representation for the LLM context (drops Airbyte noise)."""
     conn = get_trino_connection()
     cur = conn.cursor()
     try:
-        cur.execute("SHOW TABLES FROM iceberg.default")
-        tables = [row[0] for row in cur.fetchall()]
-        schema_text = "Database Schema:\n"
-        for table in tables:
-            cur.execute(f"DESCRIBE iceberg.default.{table}")
-            columns = [f"{row[0]} ({row[1]})" for row in cur.fetchall()]
-            schema_text += f"- Table '{table}': {', '.join(columns)}\n"
-        # Include bronze/silver/gold schemas too
-        cur.execute("SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema NOT IN ('information_schema', 'default')")
+        schema_text = "Database Schema:" + chr(10)
+        cur.execute(
+            "SELECT table_schema, table_name FROM information_schema.tables "
+            "WHERE table_schema NOT IN ('information_schema', 'default') "
+            "ORDER BY 1, 2"
+        )
         for t_schema, t_name in cur.fetchall():
             cur.execute(f"DESCRIBE iceberg.{t_schema}.{t_name}")
-            columns = [f"{row[0]} ({row[1]})" for row in cur.fetchall()]
-            schema_text += f"- Table '{t_schema}.{t_name}': {', '.join(columns)}\n"
+            cols = []
+            for row in cur.fetchall():
+                name, typ = row[0], row[1]
+                if name.startswith("_") and "airbyte" in name:
+                    continue
+                cols.append(f"{name} {typ}")
+            schema_text += f"- {t_schema}.{t_name}({', '.join(cols)})" + chr(10)
         return schema_text
     except Exception:
         return "No tables found in schema."
@@ -142,19 +145,18 @@ def execute_query(request: QueryRequest, user: dict = Depends(get_current_user))
 def _generate_sql(prompt: str):
     """Asks the LLM for a Trino SQL query and returns (sql_query, explanation)."""
     schema_context = get_schema_context()
-    system_prompt = f"""You are an expert Data Engineer specializing in Trino SQL.
+    # Terse prompt: small local models spend their token budget on verbosity if
+    # asked to explain. Ask for ONLY the SQL block (Qwen3.5-0.8B is CPU-bound).
+    system_prompt = f"""You are an expert Trino SQL data engineer.
+Translate the request into a single valid Trino SQL query.
 
-Your task is to translate the user's natural language request into a valid Trino SQL query.
-
-Context (Available Tables):
+Available tables:
 {schema_context}
 
-Instructions:
-1. Output valid SQL code inside a markdown block (```sql ... ```).
-2. Provide a brief explanation outside the code block.
-3. Use ONLY the tables/columns listed in the context.
-4. If the request requires tables not in the context, say "I cannot fulfill this request because the data is missing."
-"""
+Respond with ONLY the SQL query inside a markdown code block, for example:
+```sql
+SELECT ...
+```"""
     completion = client.chat.completions.create(
         model=MODEL_NAME,
         messages=[
@@ -162,7 +164,7 @@ Instructions:
             {"role": "user", "content": prompt},
         ],
         temperature=0.1,
-        max_tokens=200,  # Qwen3.5-2B is CPU-bound; keep generations bounded
+        max_tokens=200,
     )
     content = completion.choices[0].message.content or ""
 
@@ -189,34 +191,44 @@ def generate_pipeline(request: PipelineRequest):
 
 @app.post("/ai/execute", response_model=ExecuteResponse)
 def execute_pipeline(request: ExecuteRequest):
-    """Generates a SQL query from natural language, executes it and returns the results."""
-    try:
-        sql_query, explanation = _generate_sql(request.prompt)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Generates SQL from natural language, executes it, and self-corrects on error."""
+    last_err = ""
+    for attempt in range(2):
+        try:
+            if attempt == 0:
+                sql_query, explanation = _generate_sql(request.prompt)
+            else:
+                sql_query, explanation = _generate_sql(
+                    "The previous Trino query failed with error: "
+                    f"{last_err}. Query: {sql_query}. "
+                    "Return ONLY a corrected valid Trino SQL query inside a markdown code block."
+                )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
-    if not sql_query or not sql_query.upper().lstrip().startswith(("SELECT", "WITH")):
-        raise HTTPException(status_code=400, detail="The LLM did not produce a read-only SQL query.")
+        if not sql_query or not sql_query.upper().lstrip().startswith(("SELECT", "WITH")):
+            last_err = "The LLM did not produce a read-only SQL query."
+            continue
 
-    conn = get_trino_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(sql_query)
-        rows = cur.fetchall()
-        columns = [desc[0] for desc in cur.description] if cur.description else []
-        return ExecuteResponse(
-            sql_query=sql_query,
-            explanation=explanation,
-            columns=columns,
-            rows=[list(r) for r in rows[:200]],
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        cur.close()
-        conn.close()
+        conn = get_trino_connection()
+        cur = conn.cursor()
+        try:
+            cur.execute(sql_query)
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description] if cur.description else []
+            return ExecuteResponse(
+                sql_query=sql_query,
+                explanation=explanation,
+                columns=columns,
+                rows=[list(r) for r in rows[:200]],
+            )
+        except Exception as e:
+            last_err = str(e)
+        finally:
+            cur.close()
+            conn.close()
 
-
+    raise HTTPException(status_code=400, detail=f"Query failed after retry: {last_err}")
 @app.post("/agent/run", response_model=AgentResponse)
 async def run_agent(request: AgentRequest):
     """Runs an autonomous data-engineering task through the FastPath orchestrator."""
