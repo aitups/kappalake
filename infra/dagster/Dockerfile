@@ -31,7 +31,9 @@ RUN pip install --no-cache-dir \
     trino \
     psycopg2-binary \
     duckdb \
-    pyiceberg[s3fs,pyarrow]
+    pyiceberg[s3fs,pyarrow] \
+    kafka-python \
+    faker
 
 WORKDIR /opt/dagster/app
 

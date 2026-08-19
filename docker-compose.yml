@@ -143,6 +143,46 @@ services:
     networks:
       - kappalake-net
 
+  # Streaming: producer -> Redpanda -> consumer -> Iceberg (bronze.users_stream)
+  stream-producer:
+    build: ./infra/dagster
+    container_name: kappalake-stream-producer
+    entrypoint: ["python", "/opt/flink/stream_producer.py"]
+    environment:
+      REDPANDA_BOOTSTRAP: redpanda:29092
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./infra/flink/stream_producer.py:/opt/flink/stream_producer.py:ro
+    depends_on:
+      redpanda:
+        condition: service_started
+    networks:
+      - kappalake-net
+
+  stream-consumer:
+    build: ./infra/dagster
+    container_name: kappalake-stream-consumer
+    entrypoint: ["python", "/opt/flink/stream_consumer.py"]
+    environment:
+      REDPANDA_BOOTSTRAP: redpanda:29092
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      TRINO_HOST: trino
+      FLUSH_INTERVAL_SECONDS: "30"
+      PYTHONUNBUFFERED: "1"
+    volumes:
+      - ./infra/flink/stream_consumer.py:/opt/flink/stream_consumer.py:ro
+    depends_on:
+      redpanda:
+        condition: service_started
+      trino:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    networks:
+      - kappalake-net
+
   # ==========================================
   # 4. ORCHESTRATION (Dagster)
   # ==========================================
