@@ -1,7 +1,7 @@
 "use server";
 
 import { CONFIG } from "../lib/config";
-import { PipelineResponse } from "../lib/types";
+import { AgentRunResponse, ExecuteResponse, PipelineResponse } from "../lib/types";
 
 /**
  * Sends a prompt to the AI API to generate a SQL pipeline.
@@ -37,4 +37,42 @@ export async function generatePipeline(prompt: string): Promise<PipelineResponse
     console.error("[ServerAction] Error in generatePipeline:", error);
     throw error;
   }
+}
+
+/**
+ * Sends a prompt to the AI API which generates and executes a SQL query.
+ */
+export async function executePipeline(prompt: string): Promise<ExecuteResponse> {
+  const url = `${CONFIG.INTERNAL_API_URL}${CONFIG.ENDPOINTS.EXECUTE}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[ServerAction] Execute error (${res.status}): ${errorText}`);
+    throw new Error(`Execute failed with status: ${res.status}`);
+  }
+  return res.json();
+}
+
+/**
+ * Runs an autonomous data-engineering task through the FastPath orchestrator.
+ */
+export async function runAgentTask(task: string): Promise<AgentRunResponse> {
+  const url = `${CONFIG.INTERNAL_API_URL}${CONFIG.ENDPOINTS.AGENT_RUN}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ task }),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    console.error(`[ServerAction] Agent error (${res.status}): ${errorText}`);
+    throw new Error(`Agent run failed with status: ${res.status}`);
+  }
+  return res.json();
 }

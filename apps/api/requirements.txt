@@ -4,3 +4,9 @@ trino
 pydantic
 python-dotenv
 openai
+pyyaml
+requests
+duckduckgo-search
+# fastpath (aitups/fastpath) is a private repo: mounted as a volume at
+# /opt/fastpath in docker-compose and added to PYTHONPATH (see compose).
+# Public install once it becomes public: fastpath @ git+https://github.com/aitups/fastpath.git@main

@@ -8,5 +8,7 @@ export const CONFIG = {
   
   ENDPOINTS: {
     GENERATE_PIPELINE: "/ai/generate_pipeline",
+    EXECUTE: "/ai/execute",
+    AGENT_RUN: "/agent/run",
   },
 };

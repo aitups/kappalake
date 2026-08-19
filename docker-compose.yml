@@ -228,7 +228,11 @@ services:
       MINIO_URL: http://minio:9000
       TRINO_URL: http://trino:8080
       LLM_API_URL: http://llm:8080/v1
-      LLM_MODEL: SmolLM2-135M-Instruct
+      LLM_MODEL: SmolLM2-135M-Instruct-Q4_K_M
+      # Agentic layer: fastpath (private repo) mounted from ../fastpath
+      PYTHONPATH: /opt/fastpath/src:/app
+    volumes:
+      - ../fastpath:/opt/fastpath:ro
     networks:
       - kappalake-net
     depends_on:
